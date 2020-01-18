@@ -2,7 +2,6 @@
 #include <cmath>
 #include <memory>
 #include <string>
-#include <tuple>
 #include <curl/curl.h>
 #include <json/json.h>
 
@@ -160,11 +159,10 @@ main()
     using namespace date;
     constexpr sys_seconds epoch = sys_days{2000_y/1/1};
 
-    auto target = sys_days{2014_y/November/15} + 9h + 53min + 10s  -  epoch;
+    auto target = sys_days{2018_y/May/1} + 9h +45min -  epoch;
     std::cout << "Looking for {ledger at, " << target/1s << ", " << target+epoch << "}\n";
 
-    int l1, t1;
-    std::tie(l1, t1) = get_last_validated_close_time();
+    auto [l1, t1] = get_last_validated_close_time();
     auto l2 = l1 - 10;
     auto t2 = get_close_time(l2);
 
@@ -226,6 +224,12 @@ main()
             }
         }
         *pnt = get_close_time(nl);
+        if (seconds{*pnt} == target)
+        {
+            l1 = nl;
+            t1 = *pnt;
+            break;
+        }
         std::cout << '{' << nl << ", " << *pnt << ", " << seconds{*pnt}+epoch << "}\n";
     }
     std::cout << '{' << l1 << ", " << t1 << ", " << seconds{t1}+epoch << "}\n";
