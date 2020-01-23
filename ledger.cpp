@@ -70,7 +70,8 @@ post_and_download_to_string(const std::string& url, std::string const& post,
 // Execute a query against the S2 cluster of full history XRP Ledger notes.
 // Note that this is a best-effort service that does not guarantee
 // any particular level of reliability.
-bool do_query (std::string const& method, Json::Value const& params, Json::Value& reply)
+bool
+do_query(std::string const& method, Json::Value const& params, Json::Value& reply)
 {
     std::string q;
 
@@ -92,24 +93,24 @@ bool do_query (std::string const& method, Json::Value const& params, Json::Value
     Json::Value root;
     if (!reader.parse(out.c_str(), root))
     {
-        fprintf(stderr, "%s\n", reader.getFormatedErrorMessages().c_str());
+        std::cerr << reader.getFormatedErrorMessages() << '\n';
         return false;
     }
     Json::Value& result = root["result"];
     if (! result.isObject())
     {
-        fprintf(stderr, "Result is not object\n");
+        std::cerr << "Result is not object\n";
         return false;
     }
     Json::Value& status = result["status"];
     if (!status.isString() || (status.asString() != "success"))
     {
-        fprintf(stderr, "Result is '%s', not success\n", status.asString().c_str());
-        reply = result;
+        std::cerr << "Result is '" << status.asString() << "', not success\n";
+        reply = std::move(result);
         return false;
     }
 
-    reply = std::move (root);
+    reply = std::move(root);
     return true;
 }
 
@@ -122,15 +123,15 @@ bool getHeader (unsigned ledger_seq, Json::Value& header)
         params["ledger_index"] = "validated";
     else
         params["ledger_index"] = ledger_seq;
-    if (! do_query ("ledger", params, reply))
+    if (!do_query("ledger", params, reply))
     {
-        header = reply;
+        header = std::move(reply);
         return false;
     }
     header = reply["result"]["ledger"];
     if (header.isObject() && !header.isNull())
         return true;
-    header = reply;
+    header = std::move(reply);
     return false;
 }
 
@@ -159,35 +160,48 @@ main()
     using namespace date;
     constexpr sys_seconds epoch = sys_days{2000_y/1/1};
 
-    auto target = sys_days{2018_y/May/1} + 9h +45min -  epoch;
-    std::cout << "Looking for {ledger at, " << target/1s << ", " << target+epoch << "}\n";
+    auto target = sys_days{2020_y/1/1} - 1s -  epoch;
+    std::cout << std::fixed;
+    std::cout << "Looking for {ledger at, " << target/1.s << ", " << target+epoch << "}\n";
 
-    auto [l1, t1] = get_last_validated_close_time();
-    auto l2 = l1 - 10;
-    auto t2 = get_close_time(l2);
+    auto [l2, t2] = get_last_validated_close_time();
+    std::cout << '{' << l2 << ", " << t2 << ", " << seconds{t2}+epoch << "}\n";
+    if (seconds{t2} == target)
+        return 0;
+    auto l1 = l2 - 10;
+    int t1;
+    auto nl = l1;
+    int* pnt = &t1;  // pointer to new guess' timestamp
 
     while (true)
     {
-        auto m = double(l2-l1)/(t2-t1);
-        auto b = l1 - m*t1;
-        auto nl = static_cast<int>(std::round(m*(target/1s) + b));
-
-        if (l1 > l2)
+        *pnt = get_close_time(nl);
+        std::cout << '{' << nl << ", " << *pnt << ", " << seconds{*pnt}+epoch << "}\n";
+        // invariant: l1 < l2, t1 < t2
+        if (seconds{*pnt} == target)
         {
-            std::swap(l1, l2);
-            std::swap(t1, t2);
+            l1 = nl;
+            t1 = *pnt;
+            break;
         }
 
-        int* pnt;  // pointer to new guess' timestamp
+        auto m = double(l2-l1)/(t2-t1);
+        auto b = l1 - m*t1;
+        nl = static_cast<int>(std::round(m*(target/1s) + b));
+
         if (nl < l1)
         {   // If the guess is extrapolated below, chase it with our worst previous guess
-            l2 = nl;
-            pnt = &t2;
+            l2 = l1;
+            t2 = t1;
+            l1 = nl;
+            pnt = &t1;
         }
         else if (nl > l2)
         {   // If the guess is extrapolated above, chase it with our worst previous guess
-            l1 = nl;
-            pnt = &t1;
+            l1 = l2;
+            t1 = t2;
+            l2 = nl;
+            pnt = &t2;
         }
         else if (nl == l1)
         {   // If the guess is the lower bound and the upper bound is one away
@@ -200,8 +214,7 @@ main()
         else if (nl == l2)
         {   // If the guess is the upper bound and the lower bound is one away
             if (l1 == l2-1)
-            {
-                // The answer is the upper bound
+            {   // The answer is the upper bound
                 l1 = l2;
                 t1 = t2;
                 break;
@@ -223,14 +236,7 @@ main()
                 pnt = &t1;
             }
         }
-        *pnt = get_close_time(nl);
-        if (seconds{*pnt} == target)
-        {
-            l1 = nl;
-            t1 = *pnt;
-            break;
-        }
-        std::cout << '{' << nl << ", " << *pnt << ", " << seconds{*pnt}+epoch << "}\n";
     }
-    std::cout << '{' << l1 << ", " << t1 << ", " << seconds{t1}+epoch << "}\n";
+    std::cout << "---\n"
+              << '{' << l1 << ", " << t1 << ", " << seconds{t1}+epoch << "}\n";
 }
